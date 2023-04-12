@@ -1,0 +1,195 @@
+/*
+-Variables BIND por teclado y Constantes
+-recorrer una tabla del min al max
+-1,2,3,4( ciclo for)
+-1,3,5,7(ciclo while)
+-Una consulta tenga variable del for o while y un periodo de tiempo
+-ej: '&variable nashe'
+*/
+
+--Formato variable BIND constante
+VARIABLE edad_min NUMBER;
+EXEC :edad_min := 40;
+VARIABLE edad_max NUMBER;
+EXEC :edad_max := 60;
+--
+VARIABLE monto1 NUMBER;
+EXEC :monto1 := 1000;
+VARIABLE monto2 NUMBER;
+EXEC :monto2 := 1500;
+VARIABLE monto3 NUMBER;
+EXEC :monto3 := 1700;
+--
+DECLARE 
+    periodo_consulta VARCHAR2(7):= '&periodo';
+    min_nro NUMBER;
+    max_nro NUMBER;
+    run_cli cliente_todosuma.run_cliente%TYPE;
+    nombre cliente_todosuma.nombre_cliente%TYPE;
+    tipo_cli cliente_todosuma.tipo_cliente%TYPE;
+    total_creditos NUMBER;
+    total_pesos NUMBER;
+    edad NUMBER;
+    puntos NUMBER;
+    porc_p NUMBER;
+BEGIN
+    --Para truncar la tabla cada vez que se ejecute el bloque 
+    EXECUTE IMMEDIATE 'TRUNCATE TABLE cliente_todosuma';
+    --
+    SELECT
+        MIN(c.nro_cliente),
+        MAX(c.nro_cliente)
+    INTO
+        min_nro,
+        max_nro
+    FROM
+        cliente c;
+    --
+    FOR id_cliente IN min_nro..max_nro LOOP
+        --
+        SELECT
+            c.numrun||'-'||c.dvrun,
+            UPPER(c.appaterno||' '||c.apmaterno||' '||c.pnombre),
+            tp.nombre_tipo_cliente,
+            --esto es pa sacar la edad
+            TRUNC(MONTHS_BETWEEN(SYSDATE, c.fecha_nacimiento)/12)
+        INTO
+            run_cli,
+            nombre,
+            tipo_cli,
+            edad
+        FROM
+            cliente c JOIN tipo_cliente tp 
+            ON(c.cod_tipo_cliente = tp.cod_tipo_cliente)
+        WHERE
+            id_cliente = c.nro_cliente;
+        --
+        SELECT
+            --con el SUM o AVG usar si o si el NVL 
+            NVL(SUM(cc.monto_solicitado), 0)
+        INTO
+            total_creditos
+        FROM
+            credito_cliente cc
+        WHERE
+            id_cliente = cc.nro_cliente AND periodo_consulta = TO_CHAR(cc.fecha_solic_cred, 'MM-YYYY');
+        -- aki se utiliza la variable BIND constante WUAHAHHA
+        puntos:=
+            CASE
+            WHEN edad < :edad_min THEN :monto1
+            WHEN edad BETWEEN :edad_min AND :edad_max THEN :monto2
+            ELSE :monto3
+            END;
+        
+        --
+        SELECT
+            rp.porc_puntos
+        INTO
+            porc_p
+        FROM
+            rango_puntos rp
+        WHERE total_creditos BETWEEN rp.monto_minimo AND rp.monto_maximo;
+
+        --Calculo pal total de pesos
+        total_pesos:= total_creditos*porc_p + puntos + total_creditos;
+        -- 
+        IF total_creditos > 0 THEN
+            INSERT INTO cliente_todosuma VALUES(
+            id_cliente,
+            run_cli,
+            nombre,
+            tipo_cli,
+            total_creditos,
+            total_pesos);
+        END IF;
+        
+    END LOOP;
+END;
+
+--------------------------------------ejercicio semana 6--------------------------
+DECLARE
+    
+    nom_esp VARCHAR2(100);
+    --rango
+    rango_min NUMBER;
+    rango_max NUMBER;
+    --declaracion de i pal wail
+    i NUMBER;
+    --periodo
+    periodo_minimo VARCHAR2(4) := '&ANIO_INICIO';
+    periodo_maximo VARCHAR2(4) := '&ANIO_TERMINO';
+    --
+    cantidad_total_med NUMBER;
+    total_atenciones_esp NUMBER;
+    total_atencion NUMBER;
+    --
+    proporcion_2 NUMBER;
+    
+    categoria_2 VARCHAR2(20);
+BEGIN
+    EXECUTE IMMEDIATE 'TRUNCATE TABLE informe_especialidad';
+    
+    SELECT
+        MIN(esp_id),
+        MAX(esp_id)
+    INTO
+        rango_min,
+        rango_max
+    FROM especialidad;
+    
+    i:=rango_min;
+    
+    SELECT
+        COUNT(a.ate_id)
+    INTO
+        total_atencion
+    FROM atencion a;
+    WHILE i <= rango_max LOOP
+        ------------------------------
+        SELECT
+            e.nombre
+        INTO
+            nom_esp
+        FROM especialidad e
+        WHERE i = e.esp_id;
+        ------------------------------
+        SELECT
+            COUNT(em.med_run)
+        INTO
+            cantidad_total_med
+        FROM especialidad_medico em
+        WHERE i = esp_id AND TO_CHAR(fec_ini_espec,'YYYY') BETWEEN periodo_minimo AND periodo_maximo;
+        ------------------------------
+        SELECT
+            COUNT(a.ate_id)
+        INTO
+            total_atenciones_esp
+        FROM atencion a
+        WHERE i = esp_id AND TO_CHAR(a.fecha_atencion,'YYYY') BETWEEN periodo_minimo AND periodo_maximo;
+        ------------------------------
+        
+        proporcion_2:=ROUND(total_atenciones_esp/total_atencion,2);
+        
+        
+        categoria_2:=CASE
+        WHEN total_atenciones_esp = 0 THEN 'SIN CATEGORIA'
+        WHEN proporcion_2 <= 0.09 THEN 'A'
+        ELSE 'B'
+        END;
+        
+        
+        INSERT INTO informe_especialidad VALUES(
+        nom_esp,
+        periodo_minimo,
+        periodo_maximo,
+        cantidad_total_med,
+        total_atenciones_esp,
+        proporcion_2,
+        categoria_2
+        );
+        
+        
+        
+        i :=i+100;
+      END LOOP;
+END;
