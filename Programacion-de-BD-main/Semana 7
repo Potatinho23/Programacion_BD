@@ -1,0 +1,93 @@
+SET SERVEROUTPUT ON;
+--version INICIAL: usa un cursor explicito y uno implicito
+DECLARE
+    CURSOR c_medico IS
+        SELECT
+            m.med_run||'-'||m.dv_run rut_medico,
+            m.pnombre||' '||m.apaterno||' '||m.amaterno nombre_medico, m.car_id
+        FROM medico m;
+    --almacena un registro del cursor
+    reg_medico c_medico%ROWTYPE;
+    especialidad cargo.nombre%TYPE;
+BEGIN
+    --abrir cursor
+    OPEN c_medico;
+    --recorrer uno a uno los medicos
+        LOOP
+            FETCH c_medico INTO reg_medico;
+            EXIT WHEN c_medico%NOTFOUND;
+            --Obtener cargo
+            SELECT
+                c.nombre
+            INTO especialidad
+            FROM cargo c
+            WHERE c.car_id = reg_medico.car_id;
+            --Imprimir todo anashei
+            dbms_output.put_line(reg_medico.rut_medico||' '||reg_medico.nombre_medico||' es '||especialidad);
+            END LOOP;
+    --cerrar cursor
+    CLOSE c_medico;
+END;
+
+--Version explicita
+
+DECLARE
+    CURSOR c_medico IS
+        SELECT
+            m.med_run||'-'||m.dv_run rut_medico,
+            m.pnombre||' '||m.apaterno||' '||m.amaterno nombre_medico,
+            c.nombre nom_cargo
+        FROM medico m JOIN cargo c ON(m.car_id = c.car_id);
+    --almacena un registro del cursor
+    reg_medico c_medico%ROWTYPE;
+BEGIN
+    DBMS_OUTPUT.PUT_LINE('INFORME DE MEDICOS Y SUS CARGOS');
+    DBMS_OUTPUT.PUT_LINE('--------------------------------');
+    --abrir cursor
+    OPEN c_medico;
+    --recorrer uno a uno los medicos
+        LOOP
+            FETCH c_medico INTO reg_medico;
+            EXIT WHEN c_medico%NOTFOUND;
+            --Obtener cargo
+            --Imprimir todo anashei
+            dbms_output.put_line(reg_medico.rut_medico||' '||reg_medico.nombre_medico||' es '||reg_medico.nom_cargo);
+            END LOOP;
+    --cerrar cursor
+    CLOSE c_medico;
+END;
+
+
+--EJERCICIO 2
+DECLARE
+    CURSOR c_atenciones(p_periodo VARCHAR2) IS
+        SELECT
+            p.apaterno||' '||p.amaterno||' '||p.pnombre nombre_pac
+        FROM atencion a JOIN paciente p
+        ON(a.pac_run = p.pac_run)
+        WHERE TO_CHAR(fecha_atencion,'MM/YYYY')= p_periodo;
+    --almacena el periodo consultado
+    periodo_c VARCHAR2(7) := '&periodo_consulta';
+    reg_atencion c_atenciones%ROWTYPE;
+    total_atenciones NUMBER;
+BEGIN
+    DBMS_OUTPUT.PUT_LINE('PACIENTES ATENDIDOS DURANTE:');
+    DBMS_OUTPUT.PUT_LINE('-------------------------------------------');
+    OPEN c_atenciones(periodo_c);
+    --count de total de atenciones
+        SELECT
+            COUNT(a.pac_run)
+        INTO total_atenciones
+        FROM atencion a
+        WHERE TO_CHAR(fecha_atencion,'MM/YYYY') = periodo_c;
+        --ciclo while
+        WHILE TRUE LOOP
+            FETCH c_atenciones INTO reg_atencion;
+            EXIT WHEN c_atenciones%NOTFOUND;
+            DBMS_OUTPUT.PUT_LINE(reg_atencion.nombre_pac);
+        END LOOP;
+        DBMS_OUTPUT.PUT_LINE('Pacientes atendidos: '||total_atenciones);
+    CLOSE c_atenciones;
+END;
+
+
