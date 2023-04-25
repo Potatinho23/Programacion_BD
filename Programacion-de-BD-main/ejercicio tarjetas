@@ -1,0 +1,38 @@
+SET SERVEROUTPUT ON
+DECLARE
+    CURSOR c_tarjetas IS
+        SELECT 
+            tc.nro_tarjeta num_tarjeta,
+            TO_CHAR(tc.fecha_solic_tarjeta,'MM-YYYY') periodo,
+            tc.numrun
+        FROM tarjeta_cliente tc;
+        
+    nombre_cliente VARCHAR2(100); 
+    
+    CURSOR c_transacciones(p_nrotarjeta NUMBER) IS
+        SELECT
+            nro_transaccion,
+            fecha_transaccion,
+            monto_transaccion
+        FROM transaccion_tarjeta_cliente
+        WHERE nro_tarjeta = p_nrotarjeta;
+BEGIN
+    FOR reg_tarjetas IN c_tarjetas LOOP
+        DBMS_OUTPUT.PUT_LINE('NRO, TARJETA: '|| reg_tarjetas.num_tarjeta);
+        
+        SELECT
+            c.appaterno||' '||c.apmaterno||' '||c.pnombre
+        INTO nombre_cliente
+        FROM cliente c
+        WHERE c.numrun = reg_tarjetas.numrun;
+        DBMS_OUTPUT.put_line('CLIENTE : '||nombre_cliente);
+        DBMS_OUTPUT.put_line('PERIODO : '||reg_tarjetas.periodo);
+        
+        --recorrer transacciones de la tarjeta
+        FOR reg_transaccion IN c_transacciones(reg_tarjetas.num_tarjeta) LOOP
+            DBMS_OUTPUT.PUT_LINE (reg_transaccion.nro_transaccion ||' '||reg_transaccion.fecha_transaccion
+            ||' '||TO_CHAR(reg_transaccion.monto_transaccion, '$999g999g999'));
+          END LOOP;
+    
+    END LOOP;
+END;
