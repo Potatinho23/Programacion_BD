@@ -1,0 +1,60 @@
+SET SERVEROUTPUT ON;
+DECLARE
+    CURSOR c_pacientes IS
+        SELECT
+            apaterno||' '||amaterno||' '||pnombre nombre_paciente,
+            pac_run
+        FROM paciente;
+        
+    CURSOR c_atenciones(p_rut NUMBER) IS
+        SELECT
+            fecha_atencion,
+            costo
+        FROM atencion 
+        WHERE pac_run = p_rut;
+    --almacena el total de atenciones
+    total_atenciones NUMBER;
+    porc_paciente NUMBER;
+    
+    msg_oracle error_proceso.descripcion_oracle%TYPE;
+BEGIN
+    --procesar los pacientes
+    
+    FOR reg_pacientes IN c_pacientes LOOP
+        DBMS_OUTPUT.PUT_LINE('PACIENTE: '||reg_pacientes.nombre_paciente);
+    --Obtener las atenciones del pacientes
+        FOR reg_atencion IN c_atenciones(reg_pacientes.pac_run) LOOP
+            DBMS_OUTPUT.PUT_LINE(reg_atencion.fecha_atencion||' '||TO_CHAR(reg_atencion.costo,'$999g999g999'));
+        END LOOP;
+        --imprimir el % de acuerdo con la cantidad de atenciones
+        --primero vamos a obtener el total de atenciones del paciente
+            SELECT
+                COUNT(ate_id)
+            INTO total_atenciones
+            FROM atencion
+            WHERE pac_run = reg_pacientes.pac_run;
+        --buscar el % en la tabla indicada
+        BEGIN
+            SELECT 
+                porc_asig
+            INTO
+                porc_paciente
+            FROM
+                tramo_asig_atmed
+            WHERE total_atenciones BETWEEN tramo_inf_atm AND tramo_sup_atm;
+        EXCEPTION
+            WHEN TOO_MANY_ROWS THEN
+                porc_paciente :=0;
+                --guarda la descripcion tecnica del error
+                msg_oracle := SQLERRM;
+                INSERT INTO error_proceso VALUES(
+                    SEQ_ERROR.NEXTVAL,'Existe mas de un registro',msg_oracle, USER);
+                    
+            WHEN NO_DATA_FOUND THEN
+                msg_oracle := SQLERRM;
+                INSERT INTO error_proceso VALUES(
+                    SEQ_ERROR.NEXTVAL,'NO existe registro',msg_oracle, USER);
+        END;
+        DBMS_OUTPUT.PUT_LINE(porc_paciente);
+    END LOOP;
+END;
