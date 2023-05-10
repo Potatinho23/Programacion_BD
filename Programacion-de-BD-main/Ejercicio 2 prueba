@@ -1,0 +1,168 @@
+DECLARE
+--primer cursor
+    CURSOR c_cepas IS
+        SELECT
+            id_cepa,
+            nom_cepa
+        FROM cepa
+        ORDER BY nom_cepa;
+--Segundo cursor
+    CURSOR c_dpedido(p_cepa NUMBER, p_fecha VARCHAR2)IS
+        SELECT
+            ped.fec_pedido AS fecha,
+            COUNT(dp.id_pedido)AS cantidad,
+            SUM(dp.cantidad*p.precio) AS monto
+        FROM detalle_pedido dp JOIN producto p
+        ON(dp.id_producto = p.id_producto)
+        JOIN pedido ped ON(ped.id_pedido = dp.id_pedido)
+        WHERE p_cepa = p.id_cepa AND TO_CHAR(ped.fec_pedido,'MM-YYYY') = p_fecha 
+        group by ped.fec_pedido;
+        
+--variables
+    fecha_consulta VARCHAR2(7):= '&fecha';
+    calculo_comision NUMBER;
+    calculo_gravamen NUMBER;
+    descuento_cepa NUMBER;
+    total_desctos NUMBER;
+    total_recaudacion NUMBER;
+    total_monto_cepas NUMBER;
+    cantidad_cepas NUMBER;
+    total_gravamenes NUMBER;
+    total_dectos_cepa NUMBER;
+    total_comisiones NUMBER;
+    total_delivery NUMBER;
+    total_descuentos NUMBER;
+    total_recaudaciones NUMBER;
+--porcentaje
+    porcentaje NUMBER;
+    porcentaje_comis NUMBER;
+--MSG
+    msg_oracle VARCHAR2(300);
+--Error de negocio
+    error_negocio EXCEPTION;
+--definir VARRAY
+    TYPE t_descuentos_cepa IS VARRAY(6)OF NUMBER;
+    descto t_descuentos_cepa;
+BEGIN
+    EXECUTE IMMEDIATE 'TRUNCATE TABLE detalle_ventas_diarias';
+    EXECUTE IMMEDIATE 'TRUNCATE TABLE resumen_ventas_cepa';
+    EXECUTE IMMEDIATE 'TRUNCATE TABLE ERRORES_PROCESO_RECAUDACION';
+    descto := t_descuentos_cepa(0.23, 0.21, 0.19, 0.17, 0.15, 1800);
+    FOR reg_cepa IN c_cepas LOOP
+        cantidad_cepas:= 0;
+        total_monto_cepas:= 0;
+        total_gravamenes:= 0;
+        total_dectos_cepa:= 0;
+        total_comisiones:= 0;
+        total_delivery:= 0;
+        total_descuentos:= 0;
+        total_recaudaciones:= 0;
+        FOR reg_detalle_pedido IN c_dpedido(reg_cepa.id_cepa, fecha_consulta) LOOP
+            BEGIN
+                SELECT
+                    pctgravamen
+                INTO 
+                    porcentaje
+                FROM gravamen
+                WHERE reg_detalle_pedido.monto BETWEEN mto_venta_inf AND mto_venta_sup;
+                EXCEPTION
+                    --sin datos
+                    WHEN NO_DATA_FOUND THEN
+                    porcentaje := 0;
+                    msg_oracle := SQLERRM;
+                    INSERT INTO errores_proceso_recaudacion VALUES(
+                    SQ_ERROR.nextval,msg_oracle, 'No se encontro porcentaje de impuesto para el monto 
+                    de los pedidos del dia '||fecha_consulta);
+                    --demasiados datos WUAAHAHAH
+                    WHEN TOO_MANY_ROWS THEN
+                    porcentaje := 0;
+                    msg_oracle :=SQLERRM;
+                    INSERT INTO errores_proceso_recaudacion VALUES(
+                    SQ_ERROR.nextval,msg_oracle, 'Se encontro mas de un porcentaje de impuesto para el monto 
+                    de los pedidos del dia '||fecha_consulta);
+            END;
+            calculo_gravamen := ROUND(porcentaje*reg_detalle_pedido.monto/100);
+            BEGIN
+                SELECT
+                    pctcomis
+                INTO
+                    porcentaje_comis
+                FROM comision
+                WHERE reg_detalle_pedido.monto BETWEEN mto_inf_venta AND mto_sup_venta;
+                EXCEPTION
+                WHEN NO_DATA_FOUND THEN
+                    porcentaje_comis := 0;
+                    msg_oracle := SQLERRM;
+                    INSERT INTO errores_proceso_recaudacion VALUES(
+                    SQ_ERROR.nextval,msg_oracle, 'No se ha encontrado ningun dato');
+            END;
+            calculo_comision := ROUND(porcentaje_comis*reg_detalle_pedido.monto/100);
+            BEGIN
+                IF calculo_comision > 11000 THEN
+                    RAISE error_negocio;
+                END IF;
+                
+                EXCEPTION
+                WHEN error_negocio THEN
+                   INSERT INTO errores_proceso_recaudacion VALUES(
+                   SQ_ERROR.nextval,'Monto de comision sobrepasó el limite permitido', 'Se reemplazó el monto 
+                   de comision calculada de '||TO_CHAR(calculo_comision,'$999g999g999')||' por el monto
+                   limite de $11.000'
+                   );
+                   calculo_comision := 11000;
+            END;
+            
+            descuento_cepa :=
+            CASE 
+            WHEN reg_cepa.nom_cepa = 'Carmenere' THEN
+                descto(1)*reg_detalle_pedido.monto
+            WHEN reg_cepa.nom_cepa = 'Merlot' THEN
+                descto(2)*reg_detalle_pedido.monto
+            WHEN reg_cepa.nom_cepa = 'Cabernet Sauvignon' THEN
+                descto(3)*reg_detalle_pedido.monto
+            WHEN reg_cepa.nom_cepa = 'Syrah' THEN
+                descto(4)*reg_detalle_pedido.monto
+            ELSE
+                descto(5)*reg_detalle_pedido.monto
+            END;
+            
+            total_desctos := calculo_gravamen+calculo_comision+ROUND(descuento_cepa)+descto(6);
+            
+            total_recaudacion := reg_detalle_pedido.monto - total_desctos;
+            
+            INSERT INTO detalle_ventas_diarias VALUES(
+            reg_detalle_pedido.fecha,
+            reg_cepa.nom_cepa,
+            reg_detalle_pedido.cantidad,
+            reg_detalle_pedido.monto,
+            calculo_gravamen,
+            descuento_cepa,
+            calculo_comision,
+            descto(6),
+            total_desctos,
+            total_recaudacion);
+            
+        cantidad_cepas := reg_detalle_pedido.cantidad + cantidad_cepas;
+        total_monto_cepas := reg_detalle_pedido.monto + total_monto_cepas;
+        total_gravamenes := calculo_gravamen + total_gravamenes;
+        total_dectos_cepa := descuento_cepa + total_dectos_cepa;
+        total_comisiones := calculo_comision + total_comisiones;
+        total_delivery := descto(6) + total_delivery;
+        total_descuentos := total_desctos +total_descuentos;
+        total_recaudaciones:= total_recaudacion + total_recaudaciones;
+        
+        
+        END LOOP;
+        INSERT INTO resumen_ventas_cepa VALUES(
+        reg_cepa.nom_cepa,
+        cantidad_cepas,
+        total_monto_cepas,
+        total_gravamenes,
+        total_dectos_cepa,
+        total_comisiones,
+        total_delivery,
+        total_descuentos,
+        total_recaudaciones
+        );
+    END LOOP;
+END;
