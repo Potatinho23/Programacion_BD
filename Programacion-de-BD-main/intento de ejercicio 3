@@ -1,0 +1,161 @@
+DECLARE
+    CURSOR c_profesion IS
+        SELECT
+            cod_profesion,
+            nombre_profesion
+        FROM profesion;
+    CURSOR c_asesoria(id_prof NUMBER,p_fecha VARCHAR2)IS
+        SELECT
+            p.numrun_prof run,
+            p.nombre||' '||p.appaterno nombre,
+            COUNT(a.numrun_prof) nro_asesorias,
+            a.honorario honorarios,
+            p.puntaje puntaje,
+            p.cod_tpcontrato tipo_contrato,
+            p.sueldo sueldo,
+            c.cod_comuna codigo_com,
+            c.codemp_comuna comuna
+        FROM asesoria a JOIN profesional p
+        ON(a.numrun_prof = p.numrun_prof)
+        JOIN comuna c
+        ON(p.cod_comuna = c.cod_comuna)
+        WHERE p.numrun_prof = id_prof AND TO_CHAR(a.inicio_asesoria,'MM-YYYY')= p_fecha 
+        GROUP BY p.numrun_prof, p.nombre, p.appaterno, a.honorario, p.puntaje, 
+p.cod_tpcontrato, p.sueldo, c.codemp_comuna, c.cod_comuna;
+    --PERIODO
+    periodo VARCHAR2(7) := '&periodo';
+    --porcentaje
+    porcentaje NUMBER;
+    --Asignacion
+    asignacion_porcentaje NUMBER;
+    --incentivo
+    tp_incentivo NUMBER;
+    asignacion_incentivos NUMBER;
+    --asignacion profesion
+    asignacion_profesion NUMBER;
+    total_asignaciones NUMBER;
+    asignacion_prof_porc NUMBER;
+    total_asignaciones_prof NUMBER;
+    --error de negocio
+    error_negocio EXCEPTION;
+    --MSG ORACLE
+    msg_oracle VARCHAR2(300);
+    --decuento Mov
+    descuento_mov NUMBER;
+    --VARRAY
+    TYPE v_mov IS VARRAY(6)OF NUMBER;
+    valor v_mov;
+BEGIN
+    --valores VARRAY
+    valor := v_mov(0.02, 0.04, 0.05, 0.07, 0.09, 25000);
+    FOR reg_profesion IN c_profesion LOOP
+        FOR reg_asesoria IN c_asesoria(reg_profesion.cod_profesion, periodo) LOOP
+            BEGIN
+                SELECT
+                    porcentaje
+                INTO 
+                porcentaje
+                FROM evaluacion
+                WHERE reg_asesoria.puntaje BETWEEN eva_punt_min AND eva_punt_max;
+                EXCEPTION
+                WHEN NO_DATA_FOUND THEN
+                    porcentaje := 0;
+                    msg_oracle := SQLERRM;
+                    INSERT INTO errores_p VALUES(
+                    SQ_ERROR.nextval,msg_oracle, 'No se encontro porcentaje de evaluacion para el run Nro. '
+                    ||reg_asesoria.run);
+                    --demasiados datos WUAAHAHAH
+                    WHEN TOO_MANY_ROWS THEN
+                    porcentaje := 0;
+                    msg_oracle :=SQLERRM;
+                    INSERT INTO errores_p VALUES(
+                    SQ_ERROR.nextval,msg_oracle, 'Se encontro mas de porcentaje de evaluacion para el run Nro. '
+                    ||reg_asesoria.run);
+                asignacion_porcentaje := ROUND(porcentaje*reg_asesoria.honorarios);
+            END;
+            BEGIN
+                SELECT
+                    incentivo
+                INTO
+                    tp_incentivo
+                FROM tipo_contrato
+                WHERE cod_tpcontrato = reg_asesoria.tipo_contrato;
+            EXCEPTION
+                WHEN NO_DATA_FOUND THEN
+                    tp_incentivo := 0;
+                    msg_oracle := SQLERRM;
+                    INSERT INTO errores_p VALUES(
+                    SQ_ERROR.nextval,msg_oracle, 'No se ha encontrado ningun dato');
+                WHEN TOO_MANY_ROWS THEN
+                    tp_incentivo := 0;
+                    msg_oracle :=SQLERRM;
+                    INSERT INTO errores_p VALUES(
+                    SQ_ERROR.nextval,msg_oracle, 'La recuperacion exacta devuelve un numero mayor de filas 
+                    que el solicitado');
+                asignacion_incentivos := ROUND(tp_incentivo*reg_asesoria.honorarios);
+            END;
+            BEGIN
+                SELECT
+                    asignacion
+                INTO
+                    asignacion_profesion
+                FROM profesion
+                WHERE reg_profesion.cod_profesion = cod_profesion;
+                EXCEPTION
+                WHEN NO_DATA_FOUND THEN
+                    asignacion_profesion := 0;
+                    msg_oracle := SQLERRM;
+                    INSERT INTO errores_p VALUES(
+                    SQ_ERROR.nextval,msg_oracle, 'No se ha encontrado ningun dato');
+                asignacion_prof_porc := ROUND(asignacion_profesion*reg_asesoria.sueldo);
+            END;
+            total_asignaciones := asignacion_porcentaje + asignacion_incentivos + asignacion_prof_porc;
+            BEGIN
+                IF total_asignaciones > 410000 THEN
+                    RAISE error_negocio;
+                END IF;
+            EXCEPTION
+                WHEN error_negocio THEN
+                   INSERT INTO errores_p VALUES(
+                   SQ_ERROR.nextval,'Monto total de asignaciones para el run Nro. '||reg_asesoria.run|| ' sobrepasó el limite permitido'
+                   , 'Se reemplazó el monto total de las asignaciones calculadas de '||TO_CHAR(total_asignaciones,'$999g999g999')||
+                   ' por el monto limite de $410.000'
+                   );
+                   total_asignaciones := 410000;
+            END;
+            
+            descuento_mov :=
+            CASE
+            WHEN reg_asesoria.codigo_com <> 81 THEN
+                 0
+            WHEN reg_asesoria.comuna = 10 THEN
+                valor(1)*reg_asesoria.honorarios
+            WHEN reg_asesoria.comuna = 20 THEN
+                valor(2)*reg_asesoria.honorarios
+            WHEN reg_asesoria.comuna = 30 THEN
+                valor(3)*reg_asesoria.honorarios
+            WHEN reg_asesoria.comuna = 40 THEN
+                valor(4)*reg_asesoria.honorarios
+            ELSE
+                valor(5)*reg_asesoria.honorarios
+            END;
+            
+            total_asignaciones_prof := descuento_mov + total_asignaciones + valor(6);
+            
+            INSERt INTO detalle_asignacion_mes VALUES(
+                SUBSTR(periodo,1,2),
+                SUBSTR(periodo,4,7),
+                reg_asesoria.run,
+                reg_asesoria.nombre,
+                reg_profesion.nombre_profesion,
+                reg_asesoria.nro_asesorias,
+                reg_asesoria.honorarios,
+                descuento_mov,
+                asignacion_porcentaje,
+                asignacion_incentivos,
+                asignacion_prof_porc,
+                total_asignaciones_prof
+            );
+        END LOOP;
+    END LOOP;
+END;
