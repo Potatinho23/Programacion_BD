@@ -1,0 +1,8 @@
+--crear sp para adelantar desafio
+CREATE OR REPLACE PROCEDURE sp_insertar(p_nombre VARCHAR2,
+p_total NUMBER, p_porcentaje NUMBER)
+IS
+
+BEGIN
+    INSERT INTO tabla_resultado VALUES(p_nombre,p_total,p_porcentaje);
+END;
