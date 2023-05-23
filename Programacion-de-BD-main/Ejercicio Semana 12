@@ -1,0 +1,73 @@
+CREATE OR REPLACE PROCEDURE sp_pagos(p_fecha DATE,p_nro_pagos OUT NUMBER,
+p_total_pagos OUT NUMBER)IS    
+    BEGIN
+        SELECT
+            COUNT(id_fpago),
+            NVL(SUM(monto_cancelado_pgc),0)
+        INTO
+            p_nro_pagos,
+            p_total_pagos
+        FROM pago_gasto_comun
+        WHERE fecha_cancelacion_pgc BETWEEN P_fecha AND p_fecha + 7;
+    END;
+    
+CREATE OR REPLACE FUNCTION fn_direccion_edificio(p_edificio NUMBER) RETURN VARCHAR2
+    IS
+    direccion VARCHAR2(300);
+    BEGIN
+        SELECT
+            e.direccion_edif ||', '||c.nombre_comuna
+        INTO
+            direccion
+        FROM edificio e JOIN comuna c
+        ON(e.id_comuna = c.id_comuna)
+        WHERE e.id_edif = p_edificio;
+        
+        RETURN direccion;
+    END;
+    
+CREATE OR REPLACE FUNCTION fn_promedio RETURN NUMBER
+    IS
+    promedio NUMBER;
+    BEGIN
+        SELECT
+            NVL(AVG(metros_cuadrados_depto),0)
+        INTO
+            promedio
+        FROM departamento;
+        
+        return promedio;
+    END;
+
+CREATE OR REPLACE PROCEDURE sp_inserta_deptos(p_tipo VARCHAR2, p_depto NUMBER,
+p_edificio NUMBER, p_direccion VARCHAR2)IS
+    BEGIN
+        INSERT INTO informe_deptos VALUES(
+            p_tipo,
+            SYSDATE,
+            p_depto,
+            p_edificio,
+            p_direccion
+            );
+    END;
+
+CREATE OR REPLACE PROCEDURE sp_inserta_resumenes(p_inicio DATE)
+    IS
+    x NUMBER;
+    y NUMBER;
+    BEGIN
+        sp_pagos(p_inicio, x, y);
+        INSERT INTO resumen_pagos_semana VALUES(
+        p_inicio,
+        p_inicio + 7,
+        x,
+        y
+        );
+    END;
+
+CREATE OR REPLACE PROCEDURE sp_informe
+    IS
+        CURSOR
+    BEGIN
+    END;
+
