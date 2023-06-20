@@ -1,0 +1,135 @@
+CREATE OR REPLACE PACKAGE pkg_cliente IS
+    --Variables
+    PERIODO VARCHAR2(7);
+    --Funcion publica que retorna la cantidad de boletas
+    FUNCTION fn_cantidad_boletas(p_run NUMBER)RETURN NUMBER;
+    --Procedimiento publico que inserta datos en tabla de errores
+    PROCEDURE sp_errores(p_error_tecnico VARCHAR2, p_desc VARCHAR2);
+END;
+--Cuerpo del package
+CREATE OR REPLACE PACKAGE BODY pkg_cliente IS
+
+    --funcion
+    FUNCTION fn_cantidad_boletas(p_run NUMBER)RETURN NUMBER
+    IS
+        --variable que almacena la cantidad de boletas asociadas al cliente
+        cantidad_boletas NUMBER;
+    BEGIN
+        --Obtener cantidad de boletas 
+        SELECT
+            COUNT(numboleta)
+        INTO
+            cantidad_boletas
+        FROM boleta
+        WHERE rutcliente = p_run AND TO_CHAR(fecha,'MM-YYYY') = pkg_cliente.PERIODO;
+        
+        RETURN cantidad_boletas;
+    END;
+    
+    --Procedimiento
+    PROCEDURE sp_errores(p_error_tecnico VARCHAR2, p_desc VARCHAR2)
+    IS
+    BEGIN
+        INSERT INTO error_proceso VALUES(
+        SEQ_error.nextval, p_error_tecnico, p_desc
+        );
+    END;
+END;
+
+--funcion almacenada que retorna el promedio de monto de ventas en un periodo
+CREATE OR REPLACE FUNCTION fn_monto_ventas(p_perido VARCHAR2)RETURN NUMBER
+    IS
+    --variable que almacena el monto de ventas
+        promedio_monto_ventas NUMBER;
+    BEGIN
+    --obtener el monto de ventas
+        SELECT
+            NVL(AVG(total),0) AS total
+        INTO
+            promedio_monto_ventas
+        FROM boleta
+        WHERE TO_CHAR(fecha,'MM-YYYY') = p_perido;
+        
+        RETURN promedio_monto_ventas;
+    END;
+--Funcion almacenada que retorna el monto total de ventas
+CREATE OR REPLACE FUNCTION fn_monto_total(p_run_cli NUMBER, p_periodo VARCHAR2)RETURN NUMBER
+    IS
+    --variable que almacena el monto total
+        monto_total NUMBER;
+    BEGIN
+    --Obtener el monto total de ventas
+        SELECT
+            NVL(SUM(total),0) AS monto_total
+        INTO
+            monto_total
+        FROM boleta
+        WHERE rutcliente = p_run_cli AND TO_CHAR(fecha,'MM-YYYY') = p_periodo;
+        
+        RETURN monto_total;
+    END;
+    
+--Procedimiento almacenado
+CREATE OR REPLACE PROCEDURE sp_informe(p_periodo VARCHAR2)
+    IS
+        --almacena a los clientes
+        CURSOR c_cliente IS
+            SELECT
+                rutcliente,
+                saldo
+            FROM cliente;
+            
+    --almacena el monto de ventas de un periodo
+    promedio_monto_ventas NUMBER;
+    --almacena el total de boletas
+    total_boletas NUMBER;
+    --almacena el monto total de ventas registrados por el cliente
+    monto_total_ventas NUMBER;
+    --Almacena la relacion del periodo
+    relacion VARCHAR2(100);
+    --mensaje de error sql
+    msg_error error_proceso.descripcion_negocio%TYPE;
+    BEGIN
+        --recorre el cursor
+        FOR reg_cliente IN c_cliente LOOP
+        
+            --monto ventas
+            promedio_monto_ventas := fn_monto_ventas(pkg_cliente.PERIODO);
+            --total boletas
+            total_boletas := pkg_cliente.fn_cantidad_boletas(reg_cliente.rutcliente);
+            --monto total
+            monto_total_ventas := fn_monto_total(reg_cliente.rutcliente, pkg_cliente.PERIODO);
+            
+            --obtener relacion periodo
+            relacion := CASE
+                WHEN monto_total_ventas > promedio_monto_ventas
+                    THEN 'MAYOR AL PROMEDIO'
+                WHEN monto_total_ventas < promedio_monto_ventas
+                    THEN 'MENOR AL PROMEDIO'
+                WHEN monto_total_ventas = promedio_monto_ventas
+                    THEN 'IGUAL AL PROMEDIO'
+                END;
+            
+            INSERT INTO resumen_cliente VALUES(
+            reg_cliente.rutcliente,
+            reg_cliente.saldo,
+            pkg_cliente.PERIODO,
+            total_boletas,
+            monto_total_ventas,
+            relacion);
+            
+            EXCEPTION WHEN DUP_VAL_ON_INDEX THEN
+                msg_error := SQLERRM;
+                pkg_cliente.sp_errores('Resumen de cliente '|| reg_cliente.rutcliente ||' en el periodo '
+                || pkg_cliente.PERIODO ||' ya fue emitido',msg_error);
+                
+        END LOOP;
+    END;
+
+
+
+
+
+
+
+
