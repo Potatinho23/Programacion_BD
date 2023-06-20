@@ -78,7 +78,6 @@ CREATE OR REPLACE PROCEDURE sp_informe(p_periodo VARCHAR2)
                 rutcliente,
                 saldo
             FROM cliente;
-            
     --almacena el monto de ventas de un periodo
     promedio_monto_ventas NUMBER;
     --almacena el total de boletas
@@ -122,9 +121,45 @@ CREATE OR REPLACE PROCEDURE sp_informe(p_periodo VARCHAR2)
                 msg_error := SQLERRM;
                 pkg_cliente.sp_errores('Resumen de cliente '|| reg_cliente.rutcliente ||' en el periodo '
                 || pkg_cliente.PERIODO ||' ya fue emitido',msg_error);
-                
+            
         END LOOP;
     END;
+
+CREATE OR REPLACE TRIGGER trg_calificacion_cliente
+AFTER INSERT ON categoria_cliente
+FOR EACH ROW
+DECLARE
+    --almacena la calificacion
+    calificacion VARCHAR2(100);
+BEGIN
+    
+    --total boletas
+    monto_total_ventas := fn_monto_total(reg_cliente.rutcliente, pkg_cliente.PERIODO);
+    --obtener calificacion
+    calificacion := CASE
+        WHEN :NEW.monto_total_boletas BETWEEN 0 AND 100000
+            THEN 'BAJO'
+        WHEN :NEW.monto_total_boletas BETWEEN 100001 AND 300000
+            THEN 'RAZONABLE'
+        WHEN :NEW.monto_total_boletas BETWEEN 300001 AND 700000
+            THEN 'MEDIO'
+        WHEN :NEW.monto_total_boletas BETWEEN 700001 AND 900000
+            THEN 'IDEAL'
+        ELSE 'SUPERIOR'
+        END;
+        
+        --Insertar registros
+        INSERT INTO categoria_cliente VALUES(
+        :NEW.rut,
+        :NEW.periodo,
+        calificacion
+        );
+END;
+
+
+
+
+
 
 
 
